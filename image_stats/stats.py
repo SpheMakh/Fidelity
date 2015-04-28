@@ -14,7 +14,7 @@ import argparse
 #image = sys.argv[1]
 #catalog = sys.argv[2]
 
-def reshape_data(image):
+def reshape_data(image,zoom=1):
     """ Reshape FITS data to (stokes,freq,npix_ra,npix_dec)
     """
     with pyfits.open(image) as hdu:
@@ -51,7 +51,14 @@ def reshape_data(image):
             data = data[0,...]
     elif ndim>4:
         raise ValueError('FITS file has more than 4 axes. Aborting')
-    return data,wcs
+        
+    shape = data.shape
+    imslice = [slice(None)]*len(shape)
+    lx,ly = [ (x-int(x*zoom)) for x in shape[-2:] ]
+    hx,hy = [ (low + int(x*zoom)) for x,low in zip([lx,ly],shape[-2:]) ]
+    imslice[-1] = slice(lx,hx)
+    imslice[-2] = slice(ly,hy)
+    return data[imslice], wcs
 
 
 def local_variance(data,catalog,wcs,step=20,averge_freq=True):
@@ -156,22 +163,27 @@ if __name__=='__main__':
 
     parser = argparse.ArgumentParser(description='Routines to measure image statistics')
     add = parser.add_argument
-    add('image',help='Input FITS image')
-    add('-cat','--catlog',dest='catalog',help='Measure image stats on source locations.')
-    add('-pad','--pixel-amp-dist',dest='pix_dist',help='Fit a distribution to the pixel amplitute histogram')
-    add('-fit','--fit',dest='fit',help='Function to to the pixel amplitude histogram',default='gaussian',choices=_FUNCS)
-    add('-s','--show',dest='show',action='store_true',help='Show pixel amplitude fit')
-    add('-S','--save',dest='save',help='Filename for pixel amplitude distribution plots',
+    add('image', help='Input FITS image')
+    add('-cat', '--catlog', dest='catalog', help='Measure image stats on source locations.')
+    add('-pad', '--pixel-amp-dist', dest='pix_dist', help='Fit a distribution to the pixel amplitute histogram')
+    add('-fit', '--fit', dest='fit', help='Function to to the pixel amplitude histogram',default='gaussian',choices=_FUNCS)
+    add('-s', '--show', dest='show', action='store_true', help='Show pixel amplitude fit')
+    add('-S', '--save', dest='save', help='Filename for pixel amplitude distribution plots',
         default='fidelity_stats.png')
-    add('-nb','--nbins',dest='nbins',type=int,help='Show pixel amplitude fit',default=100)
+    add('-nb', '--nbins', dest='nbins', type=int, help='Show pixel amplitude fit', default=100)
+    add('-n', '--noise', dest='noise', action="store_true", help='Returns noise estimate')
+    add('-z', '--zoom', dest='zoom', type=float, default=1.0, help='Percentage of inner region to consider for analysis')
     
     opts = parser.parse_args()
-    data,wcs = reshape_data(opts.image)
-    hist(data=data,nbins=opts.nbins,func=_FUNCS[opts.fit],show=opts.show,save=opts.save)
+    data, wcs = reshape_data(opts.image, zoom=opts.zoom)
+    hist(data=data, nbins=opts.nbins, func=_FUNCS[opts.fit], show=opts.show, save=opts.save)
     catalog = opts.catalog
     if catalog:
-        _std = local_variance(data=data,wcs=wcs,step=20,catalog=catalog)
-        pylab.plot(_std)
+        _std = local_variance(data=data, wcs=wcs, step=20, catalog=catalog)
+        pylab.plot(_std, "-x")
         pylab.plot([estimate_noise(data)]*len(_std))
         pylab.show()
+    if opts.noise:
+        noise = estimate_noise(data) 
+        print "Noise estimate is %.4g mJy"%(noise*1e3)
 
